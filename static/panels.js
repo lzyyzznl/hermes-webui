@@ -2526,9 +2526,17 @@ async function loadSettingsPanel(){
             icenterCb.disabled=true;
           } else if(status.enabled){
             sEl.style.display='block';
-            sEl.textContent=t('icenter_connected',status.account_id||'');
+            if(status.connection_state&&status.connection_state!=='connected'&&status.connection_state!=='unknown'){
+              sEl.textContent=status.connection_state==='reconnecting'?t('icenter_reconnecting'):t('icenter_disconnected');
+              sEl.style.color=status.connection_state==='reconnecting'?'var(--warning)':'var(--error)';
+            }else{
+              sEl.textContent=t('icenter_connected',status.account_id||'');
+              sEl.style.color='';
+            }
+            _startIcenterPolling();
           } else {
             sEl.textContent=t('icenter_disabled');
+            _stopIcenterPolling();
           }
         }
       });
@@ -2578,14 +2586,66 @@ async function _toggleIcenter(){
     if(sEl){
       if(result.enabled){
         sEl.textContent=t('icenter_connected',result.account_id||'');
+        sEl.style.color='';
         showToast(result.gateway_restarted?t('icenter_enabled_restart'):t('icenter_enabled_no_restart'));
+        _startIcenterPolling();
       } else {
         sEl.textContent=t('icenter_disabled');
+        sEl.style.color='';
         showToast(t('icenter_disabled'));
+        _stopIcenterPolling();
       }
     }
   }catch(e){
     if(sEl) sEl.textContent=t('icenter_error')+': '+e.message;}
+}
+
+// ── iCenter connection monitoring ─────────────────────────────────────────
+let _icenterPollTimer=null;
+let _icenterDisconnectCount=0;
+const _ICENTER_POLL_INTERVAL=30000;
+const _ICENTER_RECONNECT_THRESHOLD=3;
+
+function _startIcenterPolling(){
+  if(_icenterPollTimer) return;
+  _icenterPollTimer=setInterval(async()=>{
+    if(document.hidden) return;
+    try{
+      const data=await api('/api/icenter/status');
+      const sEl=$('icenterStatus');
+      if(!sEl||!data.enabled) return;
+      if(data.connection_state==='connected'){
+        _icenterDisconnectCount=0;
+        if(sEl.dataset.wasDisconnected==='true'){
+          sEl.textContent=t('icenter_connected',data.account_id||'');
+          sEl.style.color='';
+          sEl.dataset.wasDisconnected='false';
+        }
+      }else if(data.connection_state==='disconnected'||data.connection_state==='reconnecting'){
+        _icenterDisconnectCount++;
+        sEl.style.display='block';
+        sEl.dataset.wasDisconnected='true';
+        if(data.connection_state==='reconnecting'){
+          sEl.textContent=t('icenter_reconnecting');
+          sEl.style.color='var(--warning)';
+        }else{
+          sEl.textContent=t('icenter_disconnected');
+          sEl.style.color='var(--error)';
+        }
+        if(_icenterDisconnectCount>=_ICENTER_RECONNECT_THRESHOLD&&!data.gateway_running){
+          _icenterDisconnectCount=0;
+          sEl.textContent=t('icenter_auto_reconnecting');
+          sEl.style.color='var(--warning)';
+          try{await api('/api/icenter/toggle',{method:'POST',body:JSON.stringify({enabled:true})});}catch(e){}
+        }
+      }
+    }catch(e){}
+  },_ICENTER_POLL_INTERVAL);
+}
+
+function _stopIcenterPolling(){
+  if(_icenterPollTimer){clearInterval(_icenterPollTimer);_icenterPollTimer=null;}
+  _icenterDisconnectCount=0;
 }
 
 // ── Providers panel ───────────────────────────────────────────────────────

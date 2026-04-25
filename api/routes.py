@@ -1832,7 +1832,7 @@ def handle_post(handler, parsed) -> bool:
 
 
 def _handle_icenter_status(handler):
-    """Return iCenter availability and configuration status."""
+    """Return iCenter availability, configuration, and actual connection status."""
     import os
     import shutil
 
@@ -1861,12 +1861,29 @@ def _handle_icenter_status(handler):
     except Exception:
         pass
 
+    # Read actual connection state from gateway_state.json
+    connection_state = "unknown"
+    gateway_running = False
+    try:
+        if _AGENT_DIR:
+            from gateway.status import read_runtime_status, is_gateway_running
+            gateway_running = is_gateway_running()
+            runtime = read_runtime_status()
+            if runtime and isinstance(runtime.get("platforms"), dict):
+                icenter_info = runtime["platforms"].get("icenter")
+                if icenter_info and isinstance(icenter_info, dict):
+                    connection_state = icenter_info.get("state", "unknown")
+    except Exception:
+        pass
+
     return j(
         handler,
         {
             "available": os.path.isfile(cli_uac_path),
             "enabled": settings.get("icenter_enabled", False) and env_enabled,
             "account_id": account_id,
+            "connection_state": connection_state,
+            "gateway_running": gateway_running,
         },
     )
 
