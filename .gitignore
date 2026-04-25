@@ -23,7 +23,7 @@ AGENTS.md
 .windsurfrules
 .aider*
 copilot-instructions.md
-
+hermes_webui.egg-info
 # Generated screenshots and transient artifacts
 screenshot-*.png
 full-UI.png
