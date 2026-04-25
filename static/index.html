@@ -123,14 +123,44 @@
     </div>
     <!-- Skills panel -->
     <div class="panel-view" id="panelSkills">
-      <div class="panel-head">
-        <span data-i18n="tab_skills">Skills</span>
-        <div class="panel-head-actions">
-          <button class="panel-head-btn" onclick="openSkillCreate()" title="New skill" data-i18n-title="new_skill" aria-label="New skill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+      <!-- Sub-tabs: My Skills / Market -->
+      <div class="skills-tabs">
+        <button class="skills-tab active" id="skillsTabMine" onclick="switchSkillsTab('mine')" data-i18n="skills_tab_mine">My Skills</button>
+        <button class="skills-tab" id="skillsTabMarket" onclick="switchSkillsTab('market')" data-i18n="skills_tab_market">Skills Market</button>
+      </div>
+      <!-- My Skills sub-panel -->
+      <div class="skills-sub-panel" id="skillsMinePanel">
+        <div class="sidebar-section" style="padding-bottom:4px;display:flex;align-items:center;justify-content:space-between">
+          <div class="skills-search" style="flex:1;padding:0"><input id="skillsSearch" placeholder="Search skills..." data-i18n-placeholder="search_skills" oninput="filterSkills()"></div>
+          <div style="display:flex;gap:4px;flex-shrink:0;margin-left:6px">
+            <button class="cron-btn run" style="padding:3px 8px;font-size:10px" onclick="openMigrateFromOpenclaw()" data-i18n="migrate_from_openclaw">Migrate</button>
+            <button class="cron-btn run" style="padding:3px 8px;font-size:10px" onclick="toggleSkillForm()">+ <span data-i18n="new_skill">New skill</span></button>
+          </div>
+        </div>
+        <div id="skillCreateForm" style="display:none;padding:8px 12px;border-bottom:1px solid var(--border);flex-shrink:0">
+          <input id="skillFormName" data-i18n-placeholder="placeholder_skill_name" placeholder="Skill name (e.g. my-skill)" style="width:100%;background:rgba(255,255,255,.05);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:5px 8px;font-size:12px;outline:none;margin-bottom:6px;box-sizing:border-box">
+          <input id="skillFormCategory" data-i18n-placeholder="placeholder_category" placeholder="Category (optional, e.g. devops)" style="width:100%;background:rgba(255,255,255,.05);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:5px 8px;font-size:12px;outline:none;margin-bottom:6px;box-sizing:border-box">
+          <textarea id="skillFormContent" rows="6" data-i18n-placeholder="placeholder_skill_content" placeholder="SKILL.md content (YAML frontmatter + markdown body)" style="width:100%;background:rgba(255,255,255,.05);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:5px 8px;font-size:12px;outline:none;resize:vertical;font-family:'SF Mono',ui-monospace,monospace;margin-bottom:6px;box-sizing:border-box"></textarea>
+          <div style="display:flex;gap:6px">
+            <button class="cron-btn run" style="flex:1" onclick="submitSkillSave()" data-i18n="save_skill">Save skill</button>
+            <button class="cron-btn" style="flex:1" onclick="toggleSkillForm()" data-i18n="cancel">Cancel</button>
+          </div>
+          <div id="skillFormError" style="font-size:11px;color:var(--accent);margin-top:6px;display:none"></div>
+        </div>
+        <div class="skills-list" id="skillsList"><div style="padding:12px;color:var(--muted);font-size:12px" data-i18n="loading">Loading...</div></div>
+      </div>
+      <!-- Market sub-panel -->
+      <div class="skills-sub-panel" id="skillsMarketPanel" style="display:none;flex-direction:column;flex:1;overflow:hidden">
+        <div class="market-search">
+          <input id="marketSearch" placeholder="Search market skills..." data-i18n-placeholder="search_market_skills" oninput="onMarketSearchInput()">
+        </div>
+        <div class="market-list" id="marketList">
+          <div style="padding:12px;color:var(--muted);font-size:12px" data-i18n="loading">Loading...</div>
+        </div>
+        <div class="market-loading" id="marketLoading" style="display:none">
+          <span class="market-spinner"></span> <span data-i18n="loading">Loading...</span>
         </div>
       </div>
-      <div class="skills-search sidebar-search"><svg class="sidebar-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input id="skillsSearch" placeholder="Search skills..." data-i18n-placeholder="search_skills" oninput="filterSkills()"></div>
-      <div class="skills-list" id="skillsList"><div style="padding:12px;color:var(--muted);font-size:12px" data-i18n="loading">Loading...</div></div>
     </div>
     <!-- Memory panel -->
     <div class="panel-view" id="panelMemory">

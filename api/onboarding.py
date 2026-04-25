@@ -11,6 +11,8 @@ from api.auth import is_auth_enabled
 from api.config import (
     DEFAULT_MODEL,
     DEFAULT_WORKSPACE,
+    SESSION_DIR,
+    STATE_DIR,
     _FALLBACK_MODELS,
     _HERMES_FOUND,
     _PROVIDER_DISPLAY,
@@ -292,6 +294,87 @@ def _provider_oauth_authenticated(provider: str, hermes_home: "Path") -> bool:
         return False
 
 
+def _get_openclaw_config() -> dict:
+    """Load .openclaw configuration if it exists."""
+    openclaw_path = Path.home() / ".openclaw" / "openclaw.json"
+    return _load_yaml_config(openclaw_path)
+
+
+def _openclaw_has_skills() -> bool:
+    """Check if .openclaw has any skills configured."""
+    cfg = _get_openclaw_config()
+    skills = cfg.get("skills", {})
+    entries = skills.get("entries", {})
+    return bool(entries)
+
+
+def _openclaw_models_info() -> dict:
+    """Extract model info from .openclaw configuration."""
+    cfg = _get_openclaw_config()
+    models_cfg = cfg.get("models", {})
+    providers = models_cfg.get("providers", {})
+    return {
+        "has_openclaw": True,
+        "providers": providers,
+        "agents_default_model": cfg.get("agents", {}).get("defaults", {}).get("model", {}).get("primary", ""),
+    }
+
+
+def _get_openclaw_api_keys() -> dict[str, str]:
+    """Load API keys from .openclaw.
+
+    Checks two locations (in priority order):
+    1. ~/.openclaw-dev/openclaw.json (dev config with embedded credentials)
+    2. ~/.openclaw/agents/main/agent/auth-profiles.json (agent auth store)
+
+    Returns a dict mapping provider name to API key.
+    """
+    keys: dict[str, str] = {}
+
+    # Try ~/.openclaw-dev/openclaw.json first
+    dev_config = _load_yaml_config(Path.home() / ".openclaw-dev" / "openclaw.json")
+    if dev_config:
+        providers = dev_config.get("providers", {})
+        if isinstance(providers, dict):
+            for provider_id, provider_data in providers.items():
+                if isinstance(provider_data, dict):
+                    api_key = provider_data.get("apiKey") or provider_data.get("api_key")
+                    if api_key:
+                        keys[provider_id] = api_key
+
+    # Try ~/.openclaw/openclaw.json providers section
+    if not keys:
+        openclaw_cfg = _get_openclaw_config()
+        if openclaw_cfg:
+            providers = openclaw_cfg.get("models", {}).get("providers", {})
+            if isinstance(providers, dict):
+                for provider_id, provider_data in providers.items():
+                    if isinstance(provider_data, dict):
+                        api_key = provider_data.get("apiKey") or provider_data.get("api_key")
+                        if api_key and provider_id not in keys:
+                            keys[provider_id] = api_key
+
+    # Fall back to ~/.openclaw/agents/main/agent/auth-profiles.json
+    if not keys:
+        import json as _j
+        auth_path = Path.home() / ".openclaw" / "agents" / "main" / "agent" / "auth-profiles.json"
+        if auth_path.exists():
+            try:
+                auth_data = _j.loads(auth_path.read_text(encoding="utf-8"))
+                profiles = auth_data.get("profiles", {})
+                if isinstance(profiles, dict):
+                    for profile_key, profile_data in profiles.items():
+                        if isinstance(profile_data, dict) and profile_data.get("type") == "api_key":
+                            provider = profile_data.get("provider", "")
+                            key = profile_data.get("key", "")
+                            if provider and key:
+                                keys[provider] = key
+            except Exception:
+                pass
+
+    return keys
+
+
 def _status_from_runtime(cfg: dict, imports_ok: bool) -> dict:
     provider = _extract_current_provider(cfg)
     model = _extract_current_model(cfg)
@@ -454,6 +537,12 @@ def get_onboarding_status() -> dict:
         except Exception:
             logger.debug("Failed to persist onboarding_completed", exc_info=True)
 
+    # Check .openclaw for existing configuration
+    openclaw_cfg = _get_openclaw_config()
+    has_openclaw = bool(openclaw_cfg)
+    openclaw_has_skills = _openclaw_has_skills()
+    openclaw_models = _openclaw_models_info() if has_openclaw else {}
+
     return {
         "completed": bool(settings.get("onboarding_completed")) or auto_completed or config_auto_completed,
         "settings": {
@@ -478,6 +567,11 @@ def get_onboarding_status() -> dict:
             "last": last_workspace,
         },
         "models": available_models,
+        "openclaw": {
+            "exists": has_openclaw,
+            "has_skills": openclaw_has_skills,
+            "models_info": openclaw_models,
+        },
     }
 
 
@@ -585,3 +679,198 @@ def apply_onboarding_setup(body: dict) -> dict:
 def complete_onboarding() -> dict:
     save_settings({"onboarding_completed": True})
     return get_onboarding_status()
+
+
+def sync_from_openclaw() -> dict:
+    """Sync model config and skills from .openclaw to hermes config.
+
+    If .openclaw exists, copy the model configuration from it.
+    If .openclaw has skills configured, those will be synced too.
+    """
+    openclaw_cfg = _get_openclaw_config()
+    if not openclaw_cfg:
+        raise RuntimeError(".openclaw not found, cannot sync")
+
+    hermes_cfg = _load_yaml_config(_get_config_path())
+    hermes_home = _get_active_hermes_home()
+
+    # Sync model config from .openclaw/models to hermes config
+    openclaw_models = openclaw_cfg.get("models", {})
+    openclaw_providers = openclaw_models.get("providers", {})
+
+    if openclaw_providers:
+        # Convert .openclaw model format to hermes model format
+        hermes_model_providers = {}
+        for provider_id, provider_data in openclaw_providers.items():
+            base_url = provider_data.get("baseUrl", "")
+            models_list = provider_data.get("models", [])
+            hermes_models = []
+            for m in models_list:
+                hermes_models.append({
+                    "id": m.get("id", ""),
+                    "label": m.get("name", m.get("id", "")),
+                })
+
+            hermes_model_providers[provider_id] = {
+                "base_url": base_url,
+                "models": hermes_models,
+            }
+
+            # Set the first provider/model as default (always override during sync)
+            default_model = models_list[0].get("id", "") if models_list else ""
+            if default_model:
+                hermes_cfg["model"] = {
+                    "provider": provider_id,
+                    "default": default_model,
+                    "context_length": 128000,
+                }
+
+        hermes_cfg["providers"] = hermes_model_providers
+
+    # Sync skills from .openclaw if they exist
+    openclaw_skills = openclaw_cfg.get("skills", {})
+    if openclaw_skills:
+        hermes_skills = hermes_cfg.get("skills", {})
+        if not hermes_skills:
+            hermes_skills = {"external_dirs": [], "creation_nudge_interval": 15}
+        entries = openclaw_skills.get("entries", {})
+        if entries:
+            hermes_skills["entries"] = entries
+        hermes_cfg["skills"] = hermes_skills
+
+    # Copy skill files from .openclaw/workspace/skills/ to ~/.hermes/skills/co-claw/
+    openclaw_skills_dir = hermes_home.parent / ".openclaw" / "workspace" / "skills"
+    hermes_skills_dir = hermes_home / "skills" / "co-claw"
+    hermes_skills_dir.mkdir(parents=True, exist_ok=True)
+    if openclaw_skills_dir.is_dir():
+        import shutil
+        for skill_entry in openclaw_skills_dir.iterdir():
+            if skill_entry.is_dir():
+                target = hermes_skills_dir / skill_entry.name
+                if target.exists():
+                    shutil.rmtree(target)
+                shutil.copytree(skill_entry, target)
+        logger.info("Synced skills from %s to %s", openclaw_skills_dir, hermes_skills_dir)
+
+    _save_yaml_config(_get_config_path(), hermes_cfg)
+
+    # Sync API keys from .openclaw into providers.<id>.api_key
+    openclaw_api_keys = _get_openclaw_api_keys()
+    if openclaw_api_keys:
+        model_cfg = hermes_cfg.get("model", {})
+        if isinstance(model_cfg, dict):
+            active_provider = model_cfg.get("provider", "")
+            providers_cfg = hermes_cfg.get("providers", {})
+            if isinstance(providers_cfg, dict):
+                for provider, api_key in openclaw_api_keys.items():
+                    if provider == active_provider and provider in providers_cfg:
+                        providers_cfg[provider]["api_key"] = api_key
+                        break
+        _save_yaml_config(_get_config_path(), hermes_cfg)
+
+    # Create hermes-native workspace under ~/.hermes/workspace
+    workspace_dir = hermes_home / "workspace"
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    workspace_path = str(workspace_dir.resolve())
+
+    # Add to workspace list and set as default
+    saved = load_workspaces()
+    saved_paths = {w["path"] for w in saved}
+    if workspace_path not in saved_paths:
+        saved.insert(0, {"path": workspace_path, "name": "Home"})
+        save_workspaces(saved)
+    from api.workspace import set_last_workspace
+    set_last_workspace(workspace_path)
+
+    reload_config()
+    # Ensure essential directories exist (normally created at server startup,
+    # but needed here when ~/.hermes was freshly cleared)
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    SESSION_DIR.mkdir(parents=True, exist_ok=True)
+    save_settings({"onboarding_completed": True, "default_workspace": workspace_path})
+    return get_onboarding_status()
+
+
+def _parse_skill_description(skill_md_path: Path) -> str:
+    """Extract description from SKILL.md YAML frontmatter."""
+    try:
+        content = skill_md_path.read_text(encoding="utf-8", errors="replace")
+        if content.startswith("---"):
+            end = content.find("---", 3)
+            if end > 0:
+                for line in content[3:end].splitlines():
+                    stripped = line.strip()
+                    if stripped.startswith("description:"):
+                        return stripped.split(":", 1)[1].strip().strip('"').strip("'")
+    except Exception:
+        pass
+    return ""
+
+
+def list_openclaw_skills() -> dict:
+    """List available skills in ~/.openclaw/workspace/skills/."""
+    hermes_home = _get_active_hermes_home()
+    openclaw_skills_dir = hermes_home.parent / ".openclaw" / "workspace" / "skills"
+
+    if not openclaw_skills_dir.is_dir():
+        return {"available": False, "skills": [], "reason": "no_openclaw_dir"}
+
+    hermes_skills_dir = hermes_home / "skills" / "co-claw"
+    entries = []
+    for skill_entry in sorted(openclaw_skills_dir.iterdir()):
+        if not skill_entry.is_dir() or skill_entry.name.startswith("."):
+            continue
+
+        description = _parse_skill_description(skill_entry / "SKILL.md")
+        has_conflict = (hermes_skills_dir / skill_entry.name).exists()
+        entries.append({
+            "name": skill_entry.name,
+            "description": description,
+            "has_conflict": has_conflict,
+        })
+
+    if not entries:
+        return {"available": False, "skills": [], "reason": "empty_dir"}
+
+    return {"available": True, "skills": entries}
+
+
+def migrate_skills_from_openclaw(selected_names: list[str]) -> dict:
+    """Copy selected skill folders from ~/.openclaw/workspace/skills/ to ~/.hermes/skills/co-claw/."""
+    import shutil
+
+    hermes_home = _get_active_hermes_home()
+    openclaw_skills_dir = hermes_home.parent / ".openclaw" / "workspace" / "skills"
+    hermes_skills_dir = hermes_home / "skills" / "co-claw"
+
+    if not openclaw_skills_dir.is_dir():
+        raise RuntimeError("OpenClaw skills directory not found")
+
+    hermes_skills_dir.mkdir(parents=True, exist_ok=True)
+
+    migrated: list[str] = []
+    overwritten: list[str] = []
+
+    for name in selected_names:
+        if "/" in name or ".." in name or not name:
+            continue
+        source = openclaw_skills_dir / name
+        if not source.is_dir():
+            continue
+
+        target = hermes_skills_dir / name
+        if target.exists():
+            shutil.rmtree(target)
+            overwritten.append(name)
+
+        shutil.copytree(source, target)
+        migrated.append(name)
+
+    logger.info("Migrated %d skills from OpenClaw (overwritten: %s)", len(migrated), overwritten)
+
+    return {
+        "ok": True,
+        "migrated": migrated,
+        "overwritten": overwritten,
+        "count": len(migrated),
+    }

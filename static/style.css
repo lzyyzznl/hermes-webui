@@ -1139,6 +1139,40 @@ body.resizing{user-select:none;cursor:col-resize;}
 .skill-linked-section h4{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:4px;}
 .skill-linked-file{display:block;font-size:12px;padding:3px 6px;border-radius:4px;cursor:pointer;color:var(--blue);text-decoration:none;}
 .skill-linked-file:hover{background:var(--hover-bg);}
+
+/* ── Skills Market ── */
+.skills-tabs{display:flex;gap:0;border-bottom:1px solid var(--border);flex-shrink:0;padding:0 8px;}
+.skills-tab{flex:1;padding:8px 0;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:none;border:none;border-bottom:2px solid transparent;cursor:pointer;transition:all .15s;text-align:center;}
+.skills-tab:hover{color:var(--text);}
+.skills-tab.active{color:var(--blue);border-bottom-color:var(--blue);}
+
+.skills-sub-panel{display:flex;flex-direction:column;flex:1;overflow:hidden;}
+
+.market-search{padding:8px;flex-shrink:0;}
+.market-search input{width:100%;background:var(--hover-bg);border:1px solid var(--border2);border-radius:8px;color:var(--text);padding:8px 10px;font-size:12px;outline:none;}
+.market-search input::placeholder{color:var(--muted);}
+.market-list{flex:1;overflow-y:auto;padding:0 8px 8px;}
+.market-loading{padding:8px;text-align:center;color:var(--muted);font-size:11px;flex-shrink:0;}
+.market-spinner{display:inline-block;width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:market-spin .6s linear infinite;vertical-align:middle;}
+@keyframes market-spin{to{transform:rotate(360deg)}}
+.market-card{padding:10px 12px;border-radius:8px;margin-bottom:4px;display:flex;align-items:flex-start;gap:10px;transition:background .12s;cursor:default;}
+.market-card:hover{background:var(--hover-bg);}
+.market-card-info{flex:1;min-width:0;}
+.market-card-name{font-size:12px;font-weight:600;color:var(--text);margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.market-card-desc{font-size:11px;color:var(--muted);line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.market-card-meta{font-size:10px;color:var(--muted);opacity:.7;margin-top:3px;display:flex;align-items:center;gap:8px;}
+.market-card-actions{display:flex;flex-direction:column;gap:4px;flex-shrink:0;align-self:center;}
+.market-btn{padding:4px 12px;border-radius:6px;border:1px solid var(--border2);background:rgba(255,255,255,.04);color:var(--text);font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap;}
+.market-btn:hover{background:rgba(124,185,255,.12);border-color:rgba(124,185,255,.3);}
+.market-btn.installing{opacity:.6;pointer-events:none;}
+.market-btn.installed{color:var(--muted);border-color:var(--border2);background:transparent;cursor:default;pointer-events:none;}
+.market-btn.upgrade{border-color:rgba(100,200,100,.3);color:rgba(100,200,100,.9);}
+.market-btn.upgrade:hover{background:rgba(100,200,100,.12);}
+.market-btn.uninstall{border-color:rgba(201,168,76,.2);color:var(--accent);font-size:10px;padding:3px 8px;}
+.market-version{font-family:'SF Mono',ui-monospace,monospace;font-size:10px;}
+.market-version .arrow{color:var(--accent);margin:0 2px;}
+.skill-market-badge{font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(124,185,255,.1);color:var(--blue);border:1px solid rgba(124,185,255,.2);margin-left:4px;vertical-align:middle;}
+
 .tool-card-row{margin:0;padding:1px 0;}
 .tool-card{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:6px;margin:2px 0 2px 40px;overflow:hidden;transition:border-color .15s;}
 .tool-card:hover{border-color:rgba(255,255,255,.12);}

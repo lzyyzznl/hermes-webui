@@ -1755,8 +1755,8 @@ _SETTINGS_DEFAULTS = {
     "send_key": "enter",  # 'enter' or 'ctrl+enter'
     "show_token_usage": False,  # show input/output token badge below assistant messages
     "show_cli_sessions": False,  # merge CLI sessions from state.db into the sidebar
-    "sync_to_insights": False,  # mirror WebUI token usage to state.db for /insights
-    "check_for_updates": True,  # check if webui/agent repos are behind upstream
+    "sync_to_insights": True,  # mirror WebUI token usage to state.db for /insights
+    "check_for_updates": False,  # check if webui/agent repos are behind upstream
     "theme": "dark",  # light | dark | system
     "skin": "default",  # accent color skin: default | ares | mono | slate | poseidon | sisyphus | charizard
     "language": "en",  # UI locale code; must match a key in static/i18n.js LOCALES
@@ -1767,6 +1767,7 @@ _SETTINGS_DEFAULTS = {
     "notifications_enabled": False,  # browser notification when tab is in background
     "show_thinking": True,  # show/hide thinking/reasoning blocks in chat view
     "sidebar_density": "compact",  # compact | detailed
+    "icenter_enabled": False,  # enable iCenter integration features
     "password_hash": None,  # PBKDF2-HMAC-SHA256 hash; None = auth disabled
 }
 _SETTINGS_LEGACY_DROP_KEYS = {"assistant_language", "bubble_layout", "default_model"}
@@ -1874,6 +1875,7 @@ _SETTINGS_BOOL_KEYS = {
     "show_cli_sessions",
     "sync_to_insights",
     "check_for_updates",
+    "icenter_enabled",
     "sound_enabled",
     "notifications_enabled",
     "show_thinking",

@@ -130,7 +130,7 @@ function showPreview(mode){
 function updateEditBtn(){
   const btn=$('btnEditFile');
   if(!btn)return;
-  const editable = _previewCurrentMode==='code'||_previewCurrentMode==='md';
+  const editable = (_previewCurrentMode==='code'||_previewCurrentMode==='md') && !!_previewCurrentPath;
   btn.style.display = editable?'':'none';
   const editing = $('previewEditArea').style.display!=='none';
   btn.innerHTML = editing ? `&#128190; ${t('save')}` : `&#9998; ${t('edit')}`;

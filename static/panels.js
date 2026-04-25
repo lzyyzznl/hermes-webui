@@ -1,5 +1,18 @@
 let _currentPanel = 'chat';
 let _skillsData = null; // cached skills list
+
+// ── Skills Market state ──
+let _marketData = [];
+let _marketPage = 1;
+let _marketTotal = 0;
+let _marketQuery = '';
+let _marketLoading = false;
+let _marketInstalled = {};
+let _marketUpdates = [];
+let _marketSearchTimer = null;
+
+let _skillsTabInitialized = false;
+
 let _cronList = null; // cached cron jobs (array)
 let _currentCronDetail = null; // full cron job object
 let _cronMode = 'empty'; // 'empty' | 'read' | 'create' | 'edit'
@@ -95,7 +108,14 @@ async function switchPanel(name, opts = {}) {
   }
   // Lazy-load panel data
   if (nextPanel === 'tasks') await loadCrons();
-  if (nextPanel === 'skills') await loadSkills();
+  if (nextPanel === 'skills') {
+    // Initialize skills tab on first open
+    if (!_skillsTabInitialized) {
+      switchSkillsTab('mine');
+      _skillsTabInitialized = true;
+    }
+    await loadSkills();
+  }
   if (nextPanel === 'memory') await loadMemory();
   if (nextPanel === 'workspaces') await loadWorkspacesPanel();
   if (nextPanel === 'profiles') await loadProfilesPanel();
@@ -608,6 +628,227 @@ function renderSkills(skills) {
 
 function filterSkills() {
   if (_skillsData) renderSkills(_skillsData);
+}
+
+function switchSkillsTab(tab) {
+  const mineBtn = $('skillsTabMine');
+  const marketBtn = $('skillsTabMarket');
+  const minePanel = $('skillsMinePanel');
+  const marketPanel = $('skillsMarketPanel');
+  if (tab === 'market') {
+    mineBtn.classList.remove('active');
+    marketBtn.classList.add('active');
+    minePanel.style.display = 'none';
+    marketPanel.style.display = 'flex';
+    if (!_marketData.length && !_marketLoading) loadMarketSkills(true);
+  } else {
+    mineBtn.classList.add('active');
+    marketBtn.classList.remove('active');
+    minePanel.style.display = 'flex';
+    marketPanel.style.display = 'none';
+    // Always load/refresh skills and check for updates when switching to "Mine" tab
+    loadSkills();
+  }
+}
+
+function onMarketSearchInput() {
+  clearTimeout(_marketSearchTimer);
+  const q = ($('marketSearch').value || '').trim();
+  _marketSearchTimer = setTimeout(() => {
+    _marketQuery = q;
+    _marketPage = 1;
+    _marketData = [];
+    loadMarketSkills(true);
+  }, 300);
+}
+
+async function loadMarketSkills(reset, checkUpdates) {
+  if (_marketLoading) return;
+  _marketLoading = true;
+  const loadingEl = $('marketLoading');
+  if (loadingEl) loadingEl.style.display = '';
+
+  try {
+    if (checkUpdates !== false && !_marketUpdates.length) {
+      await _loadMarketUpdates();
+    }
+
+    const params = new URLSearchParams({
+      q: _marketQuery,
+      page: String(_marketPage),
+      rows: '16',
+    });
+    const data = await api('/api/market/skills?' + params);
+    const rows = (data.bo && data.bo.rows) || [];
+    const total = (data.bo && data.bo.total) || 0;
+
+    if (reset) {
+      _marketData = rows;
+    } else {
+      _marketData = _marketData.concat(rows);
+    }
+    _marketTotal = total;
+
+    await _loadMarketInstalled();
+    renderMarketList();
+  } catch (e) {
+    const box = $('marketList');
+    if (box) box.innerHTML = `<div style="padding:12px;color:var(--accent);font-size:12px">${esc(t('market_error_prefix'))}${esc(e.message)}</div>`;
+  } finally {
+    _marketLoading = false;
+    if (loadingEl) loadingEl.style.display = 'none';
+  }
+}
+
+async function _loadMarketInstalled() {
+  try {
+    const resp = await api('/api/market/installed');
+    const list = resp.installed || [];
+    _marketInstalled = {};
+    for (const s of list) {
+      if (s.name) _marketInstalled[s.name] = s;
+    }
+  } catch (e) { /* ignore */ }
+}
+
+async function _loadMarketUpdates() {
+  try {
+    const data = await api('/api/market/updates');
+    _marketUpdates = data.updates || [];
+    // Re-render market list to show upgrade buttons
+    if (_marketData.length) renderMarketList();
+    // Re-render skills list if on skills panel so upgrade buttons appear there too
+    if (_currentPanel === 'skills' && _skillsData) renderSkills(_skillsData);
+  } catch (e) {
+    // Clear stale update data so ghost upgrade buttons don't linger
+    _marketUpdates = [];
+  }
+}
+
+function renderMarketList() {
+  const box = $('marketList');
+  if (!box) return;
+
+  if (!_marketData.length) {
+    box.innerHTML = `<div style="padding:12px;color:var(--muted);font-size:12px">${esc(_marketQuery ? t('market_no_results') : t('market_empty'))}</div>`;
+    return;
+  }
+
+  box.innerHTML = '';
+  for (const skill of _marketData) {
+    const card = document.createElement('div');
+    card.className = 'market-card';
+
+    const name = skill.assetName || skill.name || '';
+    const dirName = skill.dirName || skill.assetNameEn || name;
+    const desc = skill.assetDescription || skill.description || '';
+    const version = skill.version || '';
+    const assetId = skill.assetId || skill.id || '';
+    const downloads = skill.subscribeTimes || 0;
+
+    const isInstalled = !!_marketInstalled[dirName];
+    const updateInfo = _marketUpdates.find(u => u.assetId === assetId);
+    const hasUpdate = !!updateInfo;
+
+    let actionHtml;
+    if (hasUpdate) {
+      actionHtml = `<button class="market-btn upgrade" onclick="marketUpgrade('${esc(dirName)}','${esc(updateInfo.skillId || assetId)}',this)">${esc(t('market_upgrade'))}</button>`;
+    } else if (isInstalled) {
+      actionHtml = `<span class="market-btn installed">${esc(t('market_installed'))}</span>`;
+    } else {
+      actionHtml = `<button class="market-btn" onclick="marketInstall('${esc(dirName)}','${esc(assetId)}','${esc(assetId)}',this)">${esc(t('market_install'))}</button>`;
+    }
+
+    const versionHtml = hasUpdate
+      ? `<span class="market-version">${esc(updateInfo.localVersion)}<span class="arrow">→</span>${esc(updateInfo.remoteVersion)}</span>`
+      : `<span class="market-version">v${esc(version)}</span>`;
+
+    card.innerHTML = `
+      <div class="market-card-info">
+        <div class="market-card-name" title="${esc(name)}">${esc(name)}</div>
+        <div class="market-card-desc">${esc(desc)}</div>
+        <div class="market-card-meta">${versionHtml}${downloads ? `<span>↓ ${downloads}</span>` : ''}</div>
+      </div>
+      <div class="market-card-actions">${actionHtml}</div>`;
+
+    box.appendChild(card);
+  }
+
+  box.onscroll = () => {
+    if (_marketLoading) return;
+    if (_marketData.length >= _marketTotal) return;
+    const threshold = box.scrollHeight - box.scrollTop - box.clientHeight;
+    if (threshold < 60) {
+      _marketPage++;
+      loadMarketSkills(false, false);
+    }
+  };
+}
+
+async function marketInstall(name, assetId, skillId, btn) {
+  btn.className = 'market-btn installing';
+  btn.textContent = t('market_installing');
+  try {
+    await api('/api/market/install', {
+      method: 'POST',
+      body: JSON.stringify({ name, assetId, skillId }),
+    });
+    btn.className = 'market-btn installed';
+    btn.textContent = t('market_installed');
+    _marketInstalled[name] = { name, assetId };
+    _skillsData = null;
+    showToast(t('market_install_success', name));
+  } catch (e) {
+    btn.className = 'market-btn';
+    btn.textContent = t('market_install');
+    showToast(t('market_install_failed') + e.message, 4000);
+  }
+}
+
+async function marketUpgrade(name, assetId, btn) {
+  const originalHtml = btn.innerHTML;
+  btn.className = 'market-btn installing';
+  btn.textContent = t('market_upgrading');
+  try {
+    await api('/api/market/upgrade', {
+      method: 'POST',
+      body: JSON.stringify({ name, skillId: assetId }),
+    });
+    _marketUpdates = _marketUpdates.filter(u => u.assetId !== assetId);
+    _skillsData = null;
+    showToast(t('market_upgrade_success', name));
+    renderMarketList();
+    // If on skills panel, re-render so the upgrade button disappears
+    if (_currentPanel === 'skills') loadSkills();
+  } catch (e) {
+    btn.className = 'market-btn upgrade';
+    btn.innerHTML = originalHtml;
+    showToast(t('market_upgrade_failed') + e.message, 4000);
+  }
+}
+
+async function marketUninstall(name, btn) {
+  const confirmed = await showConfirmDialog({
+    title: t('market_uninstall_confirm_title'),
+    message: t('market_uninstall_confirm_message', name),
+    confirmLabel: t('market_uninstall'),
+    danger: true,
+    focusCancel: true,
+  });
+  if (!confirmed) return;
+
+  try {
+    await api('/api/market/uninstall', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    });
+    delete _marketInstalled[name];
+    _skillsData = null;
+    showToast(t('market_uninstall_success', name));
+    if (_currentPanel === 'skills') await loadSkills();
+  } catch (e) {
+    showToast(t('market_uninstall_failed') + e.message, 4000);
+  }
 }
 
 // Currently selected skill detail — kept across panel switches so re-entering

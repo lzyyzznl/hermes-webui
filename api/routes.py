@@ -337,6 +337,15 @@ from api.onboarding import (
     apply_onboarding_setup,
     get_onboarding_status,
     complete_onboarding,
+    sync_from_openclaw,
+)
+from api.market import (
+    market_search,
+    market_install,
+    market_uninstall,
+    market_check_updates,
+    market_upgrade,
+    market_installed,
 )
 
 # Approval system (optional -- graceful fallback if agent not available)
@@ -673,6 +682,9 @@ def handle_get(handler, parsed) -> bool:
     if parsed.path == "/api/onboarding/status":
         return j(handler, get_onboarding_status())
 
+    if parsed.path == "/api/icenter/status":
+        return _handle_icenter_status(handler)
+
     if parsed.path.startswith("/static/"):
         return _serve_static(handler, parsed)
 
@@ -691,6 +703,14 @@ def handle_get(handler, parsed) -> bool:
         try:
             _t1 = _time.monotonic()
             s = get_session(sid, metadata_only=(not load_messages))
+            # Gateway-sourced sessions (icenter, telegram, etc.) write new
+            # messages to SQLite but not to the WebUI store.  When SQLite has
+            # more messages than the WebUI snapshot, always prefer SQLite so
+            # the user sees the latest gateway messages.
+            if load_messages:
+                cli_msgs = get_cli_session_messages(sid)
+                if cli_msgs and len(cli_msgs) > len(s.messages):
+                    s.messages = cli_msgs
             _t2 = _time.monotonic()
             effective_model = _resolve_effective_session_model_for_display(s)
             _t3 = _time.monotonic()
@@ -959,6 +979,11 @@ def handle_get(handler, parsed) -> bool:
         data = json.loads(raw) if isinstance(raw, str) else raw
         return j(handler, {"skills": data.get("skills", [])})
 
+    if parsed.path == "/api/skills/openclaw-list":
+        from api.onboarding import list_openclaw_skills
+
+        return j(handler, list_openclaw_skills())
+
     if parsed.path == "/api/skills/content":
         from tools.skills_tool import skill_view as _skill_view, SKILLS_DIR
 
@@ -996,6 +1021,25 @@ def handle_get(handler, parsed) -> bool:
         if "linked_files" not in data:
             data["linked_files"] = {}
         return j(handler, data)
+
+    if parsed.path == "/api/market/skills":
+        qs = parse_qs(parsed.query)
+        q = qs.get("q", [""])[0]
+        page = int(qs.get("page", ["1"])[0])
+        rows = int(qs.get("rows", ["16"])[0])
+        try:
+            return j(handler, market_search(query=q, page=page, rows=rows))
+        except Exception as e:
+            return bad(handler, str(e), 502)
+
+    if parsed.path == "/api/market/installed":
+        return j(handler, market_installed())
+
+    if parsed.path == "/api/market/updates":
+        try:
+            return j(handler, market_check_updates())
+        except Exception as e:
+            return bad(handler, str(e), 502)
 
     # ── Memory API (GET) ──
     if parsed.path == "/api/memory":
@@ -1375,6 +1419,54 @@ def handle_post(handler, parsed) -> bool:
     if parsed.path == "/api/skills/delete":
         return _handle_skill_delete(handler, body)
 
+    if parsed.path == "/api/skills/migrate-openclaw":
+        selected = body.get("skills", [])
+        if not isinstance(selected, list):
+            return bad(handler, "skills must be an array")
+        if not selected:
+            return bad(handler, "No skills selected")
+        try:
+            from api.onboarding import migrate_skills_from_openclaw
+
+            return j(handler, migrate_skills_from_openclaw(selected))
+        except RuntimeError as e:
+            return bad(handler, str(e), 400)
+
+    # ── Market skills (POST) ──
+    if parsed.path == "/api/market/install":
+        try:
+            require(body, "assetId", "skillId", "name")
+        except ValueError as e:
+            return bad(handler, str(e))
+        try:
+            return j(handler, market_install(body["assetId"], body["skillId"], body["name"]))
+        except Exception as e:
+            return bad(handler, str(e), 502)
+
+    if parsed.path == "/api/market/uninstall":
+        try:
+            require(body, "name")
+        except ValueError as e:
+            return bad(handler, str(e))
+        try:
+            return j(handler, market_uninstall(body["name"]))
+        except ValueError as e:
+            return bad(handler, str(e), 404)
+        except Exception as e:
+            return bad(handler, str(e), 502)
+
+    if parsed.path == "/api/market/upgrade":
+        try:
+            require(body, "name", "skillId")
+        except ValueError as e:
+            return bad(handler, str(e))
+        try:
+            return j(handler, market_upgrade(body["name"], body["skillId"]))
+        except ValueError as e:
+            return bad(handler, str(e), 404)
+        except Exception as e:
+            return bad(handler, str(e), 502)
+
     # ── Memory (POST) ──
     if parsed.path == "/api/memory/write":
         return _handle_memory_write(handler, body)
@@ -1730,9 +1822,197 @@ def handle_post(handler, parsed) -> bool:
         handler.wfile.write(json.dumps({"ok": True}).encode())
         return True
 
+    # ── iCenter toggle (POST) ──
+    if parsed.path == "/api/icenter/toggle":
+        return _handle_icenter_toggle(handler, body)
+
     return False  # 404
 
 # ── GET route helpers ─────────────────────────────────────────────────────────
+
+
+def _handle_icenter_status(handler):
+    """Return iCenter availability and configuration status."""
+    import os
+    import shutil
+
+    # cli-uac is bundled alongside this file (ui/api/cli-uac)
+    cli_uac_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cli-uac")
+    if not os.path.isfile(cli_uac_path):
+        cli_uac_path = shutil.which("cli-uac") or ""
+
+    settings = load_settings()
+    from api.config import _AGENT_DIR
+
+    # Read env values
+    account_id = ""
+    env_enabled = False
+    try:
+        if _AGENT_DIR:
+            sys.path.insert(0, str(_AGENT_DIR))
+            from hermes_cli.config import get_env_value
+
+            account_id = get_env_value("ICENTER_ACCOUNT_ID") or ""
+            env_enabled = (get_env_value("ICENTER_ENABLED") or "").lower() in (
+                "true",
+                "1",
+                "yes",
+            )
+    except Exception:
+        pass
+
+    return j(
+        handler,
+        {
+            "available": os.path.isfile(cli_uac_path),
+            "enabled": settings.get("icenter_enabled", False) and env_enabled,
+            "account_id": account_id,
+        },
+    )
+
+
+def _handle_icenter_toggle(handler, body):
+    """Toggle iCenter on/off: auto-register credentials and manage gateway."""
+    import os
+    import subprocess
+    import json as _json
+    import urllib.request
+    import ssl
+
+    from api.config import save_settings, _AGENT_DIR
+
+    enabled = body.get("enabled", False)
+
+    if not _AGENT_DIR:
+        return bad(handler, "hermes-agent not found")
+
+    # Ensure hermes_cli modules are importable
+    if str(_AGENT_DIR) not in sys.path:
+        sys.path.insert(0, str(_AGENT_DIR))
+
+    from hermes_cli.config import save_env_value, get_env_value
+
+    if enabled:
+        # --- Enable iCenter ---
+        # Check if secret key already exists
+        existing_key = get_env_value("ICENTER_SECRET_KEY")
+        secret_key = existing_key
+        empno = get_env_value("ICENTER_ACCOUNT_ID") or ""
+
+        if not secret_key:
+            # Auto-register via cli-uac (bundled alongside this file)
+            cli_uac_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cli-uac")
+            if not os.path.isfile(cli_uac_path):
+                return bad(handler, "cli-uac binary not found. Cannot auto-register.")
+
+            try:
+                result = subprocess.run(
+                    [cli_uac_path],
+                    capture_output=True, text=True, timeout=10,
+                )
+                if result.returncode != 0:
+                    return bad(handler, f"cli-uac failed: {result.stderr.strip() or 'unknown error'}")
+
+                data = _json.loads(result.stdout.strip())
+                empno = data.get("coclaw_empno", "").strip()
+                token = data.get("coclaw_token", "").strip()
+                name = data.get("coclaw_name", "").strip()
+
+                if not empno or not token:
+                    return bad(handler, "cli-uac returned incomplete credentials")
+
+                # Create secretKey via API
+                api_url = "https://igpt.dt.zte.com.cn/zte-icenter-igpt-coclaw/bot-service/keys"
+                req = urllib.request.Request(
+                    api_url,
+                    data=_json.dumps({"botId": empno}).encode(),
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-Emp-No": empno,
+                        "X-Auth-Value": token,
+                    },
+                    method="POST",
+                )
+                ctx = ssl.create_default_context()
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
+                    resp_data = _json.loads(resp.read().decode())
+                    code = (resp_data.get("code") or {}).get("code", "")
+                    secret_key = resp_data.get("bo")
+                    if code != "0000" or not secret_key:
+                        msg = (resp_data.get("code") or {}).get("msg", "unknown")
+                        return bad(handler, f"iCenter API error: {msg}")
+            except subprocess.TimeoutExpired:
+                return bad(handler, "cli-uac timed out")
+            except Exception as e:
+                return bad(handler, f"Registration failed: {e}")
+
+        # Persist credentials
+        save_env_value("ICENTER_SECRET_KEY", secret_key)
+        if empno:
+            save_env_value("ICENTER_ACCOUNT_ID", empno)
+        save_env_value("ICENTER_ENABLED", "true")
+        save_env_value("ICENTER_ALLOW_ALL_USERS", "true")
+        save_settings({"icenter_enabled": True})
+
+        # Gateway lifecycle
+        gateway_restarted = _install_and_start_gateway()
+
+        return j(handler, {
+            "enabled": True,
+            "account_id": empno,
+            "gateway_restarted": gateway_restarted,
+        })
+
+    else:
+        # --- Disable iCenter ---
+        save_env_value("ICENTER_ENABLED", "false")
+        save_settings({"icenter_enabled": False})
+
+        gateway_restarted = _stop_and_uninstall_gateway()
+
+        return j(handler, {
+            "enabled": False,
+            "gateway_restarted": gateway_restarted,
+        })
+
+
+def _install_and_start_gateway() -> bool:
+    """Install (or reinstall) and start the gateway systemd user service."""
+    import subprocess
+
+    try:
+        from hermes_cli.gateway import systemd_install, systemd_start, systemd_uninstall, get_systemd_unit_path
+        if get_systemd_unit_path(system=False).exists():
+            try:
+                systemd_uninstall()
+            except Exception:
+                pass
+        systemd_install()
+        systemd_start()
+        return True
+    except Exception:
+        pass
+    try:
+        subprocess.run(
+            ["hermes", "gateway", "restart"],
+            capture_output=True, text=True, timeout=30,
+        )
+        return True
+    except Exception:
+        return False
+
+
+def _stop_and_uninstall_gateway() -> bool:
+    """Stop and uninstall the gateway systemd user service."""
+    try:
+        from hermes_cli.gateway import systemd_uninstall
+        systemd_uninstall()
+        return True
+    except Exception:
+        return False
+
 
 # MIME types for static file serving. Hoisted to module scope to avoid
 # rebuilding the dict on every request.

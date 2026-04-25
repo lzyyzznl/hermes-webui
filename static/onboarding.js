@@ -1,4 +1,4 @@
-const ONBOARDING={status:null,step:0,steps:['system','setup','workspace','password','finish'],form:{provider:'openrouter',workspace:'',model:'',password:'',apiKey:'',baseUrl:''},active:false};
+const ONBOARDING={status:null,step:0,steps:['system','setup','workspace','password','finish'],form:{provider:'openrouter',workspace:'',model:'',password:'',apiKey:'',baseUrl:''},active:false,openclawSynced:false,manualMode:false};
 
 function _getOnboardingSetupProviders(){
   return (((ONBOARDING.status||{}).setup||{}).providers)||[];
@@ -88,6 +88,9 @@ function _renderOnboardingBody(){
   if(key==='system'){
     const hermesOk=system.hermes_found&&system.imports_ok;
     const setupOk=!!system.chat_ready;
+    const openclawExists=((ONBOARDING.status||{}).openclaw||{}).exists;
+    const openclawHtml=openclawExists?'<div class="onboarding-openclaw-sync"><p class="onboarding-sync-title">'+t('onboarding_openclaw_detected')+'</p><div class="onboarding-buttons-row"><button class="onboarding-btn" onclick="syncFromOpenclaw()">'+t('onboarding_sync_all')+'</button><button class="onboarding-btn secondary" onclick="skipOpenclawSync()">'+t('onboarding_configure_manual')+'</button></div></div>':'';
+
     _setOnboardingNotice(system.provider_note|| (setupOk?t('onboarding_notice_system_ready'):t('onboarding_notice_system_unavailable')),setupOk?'success':(hermesOk?'info':'warn'));
     body.innerHTML=`
       <div class="onboarding-panel-grid">
@@ -95,6 +98,7 @@ function _renderOnboardingBody(){
         <div class="onboarding-check ${(setupOk?'ok':system.provider_configured?'warn':'muted')}"><strong>${t('onboarding_check_provider')}</strong><span>${_providerStatusLabel(system)}</span></div>
         <div class="onboarding-check ${(settings.password_enabled?'ok':'muted')}"><strong>${t('onboarding_check_password')}</strong><span>${settings.password_enabled?t('onboarding_check_password_enabled'):t('onboarding_check_password_disabled')}</span></div>
       </div>
+      ${openclawHtml}
       <div class="onboarding-copy">
         <p><strong>${t('onboarding_config_file')}</strong> ${esc(system.config_path||t('onboarding_unknown'))}</p>
         <p><strong>${t('onboarding_env_file')}</strong> ${esc(system.env_path||t('onboarding_unknown'))}</p>
@@ -256,6 +260,39 @@ function syncOnboardingProvider(value){
       ONBOARDING.form.baseUrl=provider.default_base_url||'';
     }
   }
+  _renderOnboardingBody();
+}
+
+async function syncFromOpenclaw(){
+  try{
+    _setOnboardingNotice(t('onboarding_syncing'), 'info');
+    const status=await api('/api/onboarding/sync-from-openclaw',{method:'POST',body:'{}'});
+    ONBOARDING.status=status;
+    ONBOARDING.openclawSynced=true;
+    // Update form with synced provider/model so _finishOnboarding uses correct values
+    if(status.system&&status.system.current_provider){
+      ONBOARDING.form.provider=status.system.current_provider;
+      ONBOARDING.form.model=status.system.current_model||'';
+      ONBOARDING.form.baseUrl=status.system.current_base_url||'';
+    }
+    _setOnboardingNotice(t('onboarding_sync_success'), 'success');
+    // If chat is ready after sync, auto-complete onboarding and close the dialog
+    if(status.system&&status.system.chat_ready){
+      await _finishOnboarding();
+      return;
+    }
+    // Otherwise proceed to workspace step to continue manual configuration
+    ONBOARDING.step=2; // workspace step
+    _renderOnboardingSteps();
+    _renderOnboardingBody();
+  }catch(e){
+    _setOnboardingNotice(e.message||t('onboarding_sync_failed'),'warn');
+  }
+}
+
+function skipOpenclawSync(){
+  ONBOARDING.step=1; // setup step
+  _renderOnboardingSteps();
   _renderOnboardingBody();
 }
 
