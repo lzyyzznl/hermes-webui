@@ -2513,6 +2513,27 @@ async function loadSettingsPanel(){
     if(soundCb){soundCb.checked=!!settings.sound_enabled;soundCb.addEventListener('change',_markSettingsDirty,{once:false});}
     const notifCb=$('settingsNotificationsEnabled');
     if(notifCb){notifCb.checked=!!settings.notifications_enabled;notifCb.addEventListener('change',_markSettingsDirty,{once:false});}
+    // iCenter toggle
+    const icenterCb=$('settingsIcenterEnabled');
+    if(icenterCb){
+      api('/api/icenter/status').then(status=>{
+        icenterCb.checked=!!status.enabled;
+        const sEl=$('icenterStatus');
+        if(sEl){
+          if(!status.available){
+            sEl.style.display='block';
+            sEl.textContent=t('icenter_no_cli_uac');
+            icenterCb.disabled=true;
+          } else if(status.enabled){
+            sEl.style.display='block';
+            sEl.textContent=t('icenter_connected',status.account_id||'');
+          } else {
+            sEl.textContent=t('icenter_disabled');
+          }
+        }
+      });
+      icenterCb.addEventListener('change',_toggleIcenter);
+    }
     // show_thinking has no settings panel checkbox — controlled via /reasoning show|hide
     const sidebarDensitySel=$('settingsSidebarDensity');
     if(sidebarDensitySel){
@@ -2536,6 +2557,35 @@ async function loadSettingsPanel(){
   }catch(e){
     showToast(t('settings_load_failed')+e.message);
   }
+}
+
+async function _toggleIcenter(){
+  const cb=$('settingsIcenterEnabled');
+  const enabled=cb.checked;
+  const sEl=$('icenterStatus');
+  if(sEl){
+    sEl.style.display='block';
+    sEl.textContent=enabled?t('icenter_enabling'):t('icenter_disabling');}
+  try{
+    // If enabling iCenter, also enable show_cli_sessions
+    if(enabled){
+      const settingsResp=await api('/api/settings');
+      if(settingsResp&&!settingsResp.show_cli_sessions){
+        await api('/api/settings',{method:'POST',body:JSON.stringify({show_cli_sessions:true})});
+      }
+    }
+    const result=await api('/api/icenter/toggle',{method:'POST',body:JSON.stringify({enabled})});
+    if(sEl){
+      if(result.enabled){
+        sEl.textContent=t('icenter_connected',result.account_id||'');
+        showToast(result.gateway_restarted?t('icenter_enabled_restart'):t('icenter_enabled_no_restart'));
+      } else {
+        sEl.textContent=t('icenter_disabled');
+        showToast(t('icenter_disabled'));
+      }
+    }
+  }catch(e){
+    if(sEl) sEl.textContent=t('icenter_error')+': '+e.message;}
 }
 
 // ── Providers panel ───────────────────────────────────────────────────────
