@@ -1598,7 +1598,11 @@ def get_available_models() -> dict:
                         # config format is usually models: { "gpt-5.4": { context_length: ... } }
                         raw_models = [{"id": k, "label": k} for k in cfg_models.keys()]
                     elif isinstance(cfg_models, list):
-                        raw_models = [{"id": k, "label": k} for k in cfg_models]
+                        for item in cfg_models:
+                            if isinstance(item, dict) and "id" in item:
+                                raw_models.append({"id": str(item["id"]), "label": str(item.get("label", item["id"]))})
+                            elif isinstance(item, str):
+                                raw_models.append({"id": item, "label": item})
                 models = _apply_provider_prefix(raw_models, pid, active_provider)
                 groups.append(
                     {
