@@ -365,6 +365,17 @@
   .onboarding-oauth-pending .onboarding-oauth-icon{color:#c9a84c;}
   .onboarding-actions{display:flex;justify-content:space-between;gap:10px;margin-top:auto;}
   .onboarding-actions .sm-btn{padding:10px 16px;}
+  /* OpenClaw sync styles */
+  .onboarding-openclaw-sync{padding:14px;border-radius:14px;border:1px solid var(--accent-bg);background:var(--accent-bg);margin-bottom:8px;}
+  .onboarding-openclaw-sync .onboarding-sync-title{font-size:13px;font-weight:700;color:var(--text);margin-bottom:10px;}
+  .onboarding-buttons-row{display:flex;gap:10px;flex-wrap:wrap;}
+  .onboarding-btn{padding:10px 16px;border-radius:10px;font-size:13px;font-weight:600;background:var(--accent);border:1px solid var(--accent);color:#fff;cursor:pointer;}
+  .onboarding-btn:hover{background:var(--accent-hover);}
+  .onboarding-btn.secondary{background:transparent;border-color:var(--border2);color:var(--muted);}
+  .onboarding-btn.secondary:hover{background:var(--hover-bg);color:var(--text);}
+  .onboarding-openclaw-card{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:18px;padding:40px 24px;border-radius:20px;border:1px solid var(--border);background:rgba(255,255,255,.03);text-align:center;}
+  .onboarding-openclaw-icon{font-size:32px;flex-shrink:0;}
+  .onboarding-openclaw-desc{font-size:13px;color:var(--muted);line-height:1.7;max-width:420px;}
   .reconnect-banner{display:none;background:var(--surface);border:1px solid var(--accent-bg-strong);border-radius:10px;padding:10px 16px;margin:10px auto;max-width:780px;font-size:13px;color:var(--accent-text);display:none;align-items:center;justify-content:space-between;gap:12px;}
   .reconnect-banner.visible{display:flex;}
   .reconnect-btn{padding:6px 12px;border-radius:8px;font-size:12px;font-weight:600;background:var(--accent-bg-strong);border:1px solid var(--accent-bg-strong);color:var(--accent-text);cursor:pointer;}
@@ -843,6 +854,9 @@
     .onboarding-main{padding:20px 18px 18px;}
     .onboarding-actions{flex-direction:column-reverse;}
     .onboarding-actions .sm-btn{width:100%;min-height:44px;}
+    .onboarding-buttons-row{flex-direction:column;}
+    .onboarding-btn{width:100%;min-height:44px;}
+    .onboarding-openclaw-card{padding:28px 18px;}
     /* Login page responsive */
     .card{width:90vw;max-width:320px;padding:28px 24px;}
   }

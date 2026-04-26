@@ -1628,6 +1628,14 @@ def handle_post(handler, parsed) -> bool:
     if parsed.path == "/api/onboarding/complete":
         return j(handler, complete_onboarding())
 
+    if parsed.path == "/api/onboarding/sync-from-openclaw":
+        try:
+            return j(handler, sync_from_openclaw())
+        except ValueError as e:
+            return bad(handler, str(e))
+        except RuntimeError as e:
+            return bad(handler, str(e), 500)
+
     # ── Session pin (POST) ──
     if parsed.path == "/api/session/pin":
         try:
