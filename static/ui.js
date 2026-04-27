@@ -110,8 +110,11 @@ async function populateModelDropdown(){
       }
       sel.appendChild(og);
     }
-    // Set default model from server if no localStorage preference
-    if(data.default_model && !localStorage.getItem('hermes-webui-model')){
+    // Apply saved model preference from localStorage, or fall back to server default
+    const savedModel=localStorage.getItem('hermes-webui-model');
+    if(savedModel){
+      _applyModelToDropdown(savedModel, sel);
+    }else if(data.default_model){
       _applyModelToDropdown(data.default_model, sel);
     }
     if(typeof syncModelChip==='function') syncModelChip();

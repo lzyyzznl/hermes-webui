@@ -263,6 +263,65 @@ function syncOnboardingProvider(value){
   _renderOnboardingBody();
 }
 
+function _renderOpenclawSyncView(){
+  const overlay=$('onboardingOverlay');
+  const sidebar=$('onboardingSidebar');
+  const stepsWrap=$('onboardingSteps');
+  const body=$('onboardingBody');
+  const nextBtn=$('onboardingNextBtn');
+  const backBtn=$('onboardingBackBtn');
+
+  if(!overlay) return;
+  overlay.style.display='flex';
+  overlay.classList.add('openclaw-light');
+
+  // openclaw 同步视图：侧边栏隐藏，使用单列布局
+  const shell=overlay.querySelector('.onboarding-shell');
+  if(shell) shell.style.gridTemplateColumns='1fr';
+
+  // 隐藏侧边栏和步骤条
+  if(sidebar) sidebar.style.display='none';
+  if(stepsWrap) stepsWrap.parentElement.style.display='none';
+
+  if(nextBtn) nextBtn.style.display='none';
+  if(backBtn) backBtn.style.display='none';
+
+  _setOnboardingNotice(t('onboarding_openclaw_notice'),'info');
+  body.innerHTML=`
+    <div class="onboarding-openclaw-card">
+      <div class="onboarding-openclaw-icon">📦</div>
+      <h3>${t('onboarding_openclaw_title')}</h3>
+      <p class="onboarding-openclaw-desc">${t('onboarding_openclaw_desc')}</p>
+      <div class="onboarding-buttons-row">
+        <button class="onboarding-btn primary" onclick="syncFromOpenclaw()">${t('onboarding_sync_all')}</button>
+        <button class="onboarding-btn secondary" onclick="skipOpenclawAndSetup()">${t('onboarding_configure_manual')}</button>
+      </div>
+    </div>`;
+}
+
+function skipOpenclawAndSetup(){
+  ONBOARDING.manualMode=true;
+  const overlay=$('onboardingOverlay');
+  if(overlay) overlay.classList.remove('openclaw-light');
+  const sidebar=$('onboardingSidebar');
+  const stepsWrap=$('onboardingSteps');
+  const nextBtn=$('onboardingNextBtn');
+  const backBtn=$('onboardingBackBtn');
+
+  if(sidebar) sidebar.style.display='';
+  if(stepsWrap) stepsWrap.parentElement.style.display='';
+  if(nextBtn) nextBtn.style.display='';
+  if(backBtn) backBtn.style.display='none';
+
+  // 手动配置：恢复双列布局
+  const shell=overlay?overlay.querySelector('.onboarding-shell'):null;
+  if(shell) shell.style.gridTemplateColumns='';
+
+  ONBOARDING.step=1; // 从 setup 步骤开始
+  _renderOnboardingSteps();
+  _renderOnboardingBody();
+}
+
 async function syncFromOpenclaw(){
   try{
     _setOnboardingNotice(t('onboarding_syncing'), 'info');
@@ -276,7 +335,17 @@ async function syncFromOpenclaw(){
       ONBOARDING.form.baseUrl=status.system.current_base_url||'';
     }
     _setOnboardingNotice(t('onboarding_sync_success'), 'success');
-    // If chat is ready after sync, auto-complete onboarding and close the dialog
+    // Refresh model dropdown immediately after sync to show imported models
+    if(typeof populateModelDropdown==='function'){
+      await populateModelDropdown();
+    }
+    // Apply synced model to localStorage and dropdown selection
+    if(status.system&&status.system.current_model){
+      localStorage.setItem('hermes-webui-model',status.system.current_model);
+      const modelSel=$('modelSelect');
+      if(modelSel) _applyModelToDropdown(status.system.current_model,modelSel);
+    }
+    // If chat is ready after sync, auto-complete onboarding (includes reload)
     if(status.system&&status.system.chat_ready){
       await _finishOnboarding();
       return;
@@ -303,15 +372,24 @@ async function loadOnboardingWizard(){
     const current=((status.setup||{}).current)||{};
     ONBOARDING.form.provider=current.provider||'openrouter';
     ONBOARDING.form.workspace=(status.workspaces&&status.workspaces.last)||status.settings.default_workspace||'';
-    ONBOARDING.form.model=status.settings.default_model||current.model||'openai/gpt-5.4-mini';
+    ONBOARDING.form.model=status.settings.default_model||current.model||'Qwen3-235B-A22B';
     ONBOARDING.form.password='';
     ONBOARDING.form.apiKey='';
-    ONBOARDING.form.baseUrl=current.base_url||'';
+    const _defProv=_getOnboardingSetupProvider(ONBOARDING.form.provider);
+    ONBOARDING.form.baseUrl=current.base_url||(_defProv&&_defProv.default_base_url)||'';
     ONBOARDING.active=!status.completed;
     if(!ONBOARDING.active) return false;
-    $('onboardingOverlay').style.display='flex';
-    _renderOnboardingSteps();
-    _renderOnboardingBody();
+    // 如果存在 .openclaw，显示简化版同步界面
+    const openclawExists=((status||{}).openclaw||{}).exists;
+    if(openclawExists){
+      _renderOpenclawSyncView();
+    }else{
+      const overlay=$('onboardingOverlay');
+      overlay.style.display='flex';
+      overlay.classList.add('openclaw-light');
+      _renderOnboardingSteps();
+      _renderOnboardingBody();
+    }
     return true;
   }catch(e){
     console.warn('onboarding status failed',e);
@@ -321,6 +399,12 @@ async function loadOnboardingWizard(){
 
 function prevOnboardingStep(){
   if(ONBOARDING.step===0)return;
+  // 从 openclaw 同步卡片进入手动配置后，点"上一步"回到同步卡片
+  if(ONBOARDING.manualMode && ONBOARDING.step===1){
+    ONBOARDING.manualMode=false;
+    _renderOpenclawSyncView();
+    return;
+  }
   ONBOARDING.step--;
   _renderOnboardingSteps();
   _renderOnboardingBody();
@@ -359,7 +443,16 @@ async function _saveOnboardingDefaults(){
     await api('/api/workspaces/add',{method:'POST',body:JSON.stringify({path:workspace})});
   }
   // Model persisted by /api/onboarding/setup — no /api/default-model call needed here
-  const body={default_workspace:workspace};
+  const body={
+    default_workspace:workspace,
+    default_model:model,
+    sound_enabled:true,
+    notifications_enabled:true,
+    show_token_usage:true,
+    bubble_layout:true,
+    show_cli_sessions:true,
+    sync_to_insights:true,
+  };
   if(password) body._set_password=password;
   const saved=await api('/api/settings',{method:'POST',body:JSON.stringify(body)});
   if(ONBOARDING.status){
@@ -375,14 +468,13 @@ async function _finishOnboarding(){
   const done=await api('/api/onboarding/complete',{method:'POST',body:'{}'});
   ONBOARDING.status=done;
   ONBOARDING.active=false;
-  $('onboardingOverlay').style.display='none';
+  const ov=$('onboardingOverlay');
+  if(ov){ov.classList.remove('openclaw-light');ov.style.display='none';}
   showToast(t('onboarding_complete'));
-  await loadWorkspaceList();
-  if(typeof renderSessionList==='function') await renderSessionList();
-  if(!S.session && typeof newSession==='function'){
-    await newSession(true);
-    await renderSessionList();
-  }
+  // Reload to ensure model list and all UI state are freshly loaded from server.
+  // Onboarding only runs once — a reload is acceptable and most reliable.
+  await new Promise(r=>setTimeout(r,800));
+  location.reload();
 }
 
 async function skipOnboarding(){
@@ -390,7 +482,8 @@ async function skipOnboarding(){
     // Mark onboarding completed server-side without changing any config
     await api('/api/onboarding/complete',{method:'POST',body:'{}'});
     ONBOARDING.active=false;
-    $('onboardingOverlay').style.display='none';
+    const ov2=$('onboardingOverlay');
+    if(ov2){ov2.classList.remove('openclaw-light');ov2.style.display='none';}
     showToast(t('onboarding_skipped')||'Setup skipped');
   }catch(e){
     _setOnboardingNotice((e.message||String(e)),'warn');

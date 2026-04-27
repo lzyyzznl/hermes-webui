@@ -380,6 +380,36 @@
   .reconnect-banner.visible{display:flex;}
   .reconnect-btn{padding:6px 12px;border-radius:8px;font-size:12px;font-weight:600;background:var(--accent-bg-strong);border:1px solid var(--accent-bg-strong);color:var(--accent-text);cursor:pointer;}
   .reconnect-btn:hover{background:var(--accent-bg-strong);}
+  /* OpenClaw sync — use global theme variables instead of hardcoded dark colors */
+  .openclaw-light .onboarding-overlay{background:rgba(255,255,255,.6);backdrop-filter:blur(8px);}
+  .openclaw-light .onboarding-card{background:var(--bg);border-color:var(--border);box-shadow:0 24px 80px rgba(0,0,0,.1);}
+  .openclaw-light .onboarding-shell{background:var(--bg);}
+  .openclaw-light .onboarding-sidebar{background:var(--bg);border-right-color:var(--border);color:var(--text);}
+  .openclaw-light .onboarding-sidebar h2{color:var(--text);}
+  .openclaw-light .onboarding-sidebar p{color:var(--muted);}
+  .openclaw-light .onboarding-step{background:var(--surface);}
+  .openclaw-light .onboarding-step.active{border-color:var(--accent);background:var(--accent-bg);}
+  .openclaw-light .onboarding-step-done{background:var(--accent-bg);}
+  .openclaw-light .onboarding-step-index{background:var(--border);color:var(--text);}
+  .openclaw-light .onboarding-step.active .onboarding-step-index{background:var(--accent);color:#fff;}
+  .openclaw-light .onboarding-step-title{color:var(--text);}
+  .openclaw-light .onboarding-main{background:var(--bg);color:var(--text);}
+  .openclaw-light .onboarding-openclaw-card{background:var(--input-bg);border-color:var(--border);}
+  .openclaw-light .onboarding-openclaw-card h3{color:var(--text);}
+  .openclaw-light .onboarding-openclaw-desc{color:var(--muted);}
+  .openclaw-light .onboarding-btn{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .openclaw-light .onboarding-btn:hover{background:var(--accent-hover,var(--gold));}
+  .openclaw-light .onboarding-btn.secondary{background:transparent;border-color:var(--border);color:var(--muted);}
+  .openclaw-light .onboarding-btn.secondary:hover{background:var(--hover-bg);color:var(--text);}
+  .openclaw-light .onboarding-status{background:var(--input-bg);border-color:var(--border);color:var(--text);}
+  .openclaw-light .onboarding-check{background:var(--surface);border-color:var(--border);}
+  .openclaw-light .onboarding-check strong{color:var(--text);}
+  .openclaw-light .onboarding-check span{color:var(--muted);}
+  .openclaw-light .onboarding-field span{color:var(--text);}
+  .openclaw-light .onboarding-copy{color:var(--muted);}
+  .openclaw-light .onboarding-summary div{background:var(--surface);border-color:var(--border);}
+  .openclaw-light .onboarding-summary strong{color:var(--muted);}
+  .openclaw-light .onboarding-summary span{color:var(--text);}
   /* ── Update banner ── */
   .update-banner{display:none;background:var(--surface);border:1px solid var(--accent);border-radius:10px;padding:10px 16px;margin:10px auto;max-width:780px;font-size:13px;color:var(--accent-text);align-items:center;justify-content:space-between;gap:12px;}
   .update-banner.visible{display:flex;}

@@ -25,7 +25,7 @@ from api.config import (
     save_settings,
     verify_hermes_imports,
 )
-from api.workspace import get_last_workspace, load_workspaces
+from api.workspace import get_last_workspace, load_workspaces, save_workspaces
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +59,14 @@ _SUPPORTED_PROVIDER_SETUPS = {
         "label": "Custom OpenAI-compatible",
         "env_var": "OPENAI_API_KEY",
         "default_model": "gpt-4o-mini",
+        "requires_base_url": True,
+        "models": [],
+    },
+    "zte": {
+        "label": "ZTE MaaS (Qwen3-235B)",
+        "env_var": "OPENAI_API_KEY",
+        "default_model": "Qwen3-235B-A22B",
+        "default_base_url": "https://maas-apigateway.dt.zte.com.cn/model-cop/qwen3-235b-a22b-instrust-2507-coclaw/v1",
         "requires_base_url": True,
         "models": [],
     },
@@ -452,7 +460,7 @@ def _status_from_runtime(cfg: dict, imports_ok: bool) -> dict:
 
 
 def _build_setup_catalog(cfg: dict) -> dict:
-    current_provider = _extract_current_provider(cfg) or "openrouter"
+    current_provider = _extract_current_provider(cfg) or "zte"
     current_model = _extract_current_model(cfg)
     current_base_url = _extract_current_base_url(cfg)
 
@@ -636,7 +644,10 @@ def apply_onboarding_setup(body: dict) -> dict:
     model_cfg["provider"] = provider
     model_cfg["default"] = _normalize_model_for_provider(provider, model)
 
-    if provider == "custom":
+    if provider == "zte":
+        model_cfg.pop("base_url", None)
+        model_cfg["context_length"] = 128000
+    elif provider == "custom":
         model_cfg["base_url"] = base_url
     elif provider == "openai":
         model_cfg["base_url"] = (
@@ -646,6 +657,25 @@ def apply_onboarding_setup(body: dict) -> dict:
         model_cfg.pop("base_url", None)
 
     cfg["model"] = model_cfg
+
+    providers_cfg = cfg.setdefault("providers", {})
+    if not isinstance(providers_cfg, dict):
+        providers_cfg = {}
+        cfg["providers"] = providers_cfg
+    provider_cfg = providers_cfg.setdefault(provider, {})
+    if not isinstance(provider_cfg, dict):
+        provider_cfg = {}
+        providers_cfg[provider] = provider_cfg
+
+    if provider == "zte":
+        provider_cfg["base_url"] = base_url
+        provider_cfg["models"] = [
+            {"id": model_cfg["default"], "label": model_cfg["default"]}
+        ]
+
+    if api_key:
+        provider_cfg["api_key"] = api_key
+
     _save_yaml_config(config_path, cfg)
 
     if api_key:
@@ -702,6 +732,8 @@ def sync_from_openclaw() -> dict:
         # Convert .openclaw model format to hermes model format
         hermes_model_providers = {}
         for provider_id, provider_data in openclaw_providers.items():
+            # Unify zte-maas / zte to a single "zte" provider ID
+            hermes_provider_id = "zte" if provider_id in ("zte", "zte-maas") else provider_id
             base_url = provider_data.get("baseUrl", "")
             models_list = provider_data.get("models", [])
             hermes_models = []
@@ -711,7 +743,7 @@ def sync_from_openclaw() -> dict:
                     "label": m.get("name", m.get("id", "")),
                 })
 
-            hermes_model_providers[provider_id] = {
+            hermes_model_providers[hermes_provider_id] = {
                 "base_url": base_url,
                 "models": hermes_models,
             }
@@ -720,7 +752,7 @@ def sync_from_openclaw() -> dict:
             default_model = models_list[0].get("id", "") if models_list else ""
             if default_model:
                 hermes_cfg["model"] = {
-                    "provider": provider_id,
+                    "provider": hermes_provider_id,
                     "default": default_model,
                     "context_length": 128000,
                 }
@@ -763,8 +795,10 @@ def sync_from_openclaw() -> dict:
             providers_cfg = hermes_cfg.get("providers", {})
             if isinstance(providers_cfg, dict):
                 for provider, api_key in openclaw_api_keys.items():
-                    if provider == active_provider and provider in providers_cfg:
-                        providers_cfg[provider]["api_key"] = api_key
+                    # Unify zte-maas / zte for matching
+                    _key = "zte" if provider in ("zte", "zte-maas") else provider
+                    if _key == active_provider and _key in providers_cfg:
+                        providers_cfg[_key]["api_key"] = api_key
                         break
         _save_yaml_config(_get_config_path(), hermes_cfg)
 
@@ -783,6 +817,11 @@ def sync_from_openclaw() -> dict:
     set_last_workspace(workspace_path)
 
     reload_config()
+    # Invalidate the models cache so the next /api/models call returns fresh data
+    # with the newly synced provider and models. Without this, the 60s TTL cache
+    # would return stale data.
+    from api.config import invalidate_models_cache
+    invalidate_models_cache()
     # Ensure essential directories exist (normally created at server startup,
     # but needed here when ~/.hermes was freshly cleared)
     STATE_DIR.mkdir(parents=True, exist_ok=True)
