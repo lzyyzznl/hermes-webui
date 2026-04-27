@@ -685,14 +685,6 @@
               <div style="font-size:11px;color:var(--muted);margin-top:4px" data-i18n="settings_desc_check_updates">Show a banner when newer versions of the WebUI or Agent are available. Runs a background git fetch periodically.</div>
             </div>
             <div class="settings-field">
-              <div class="settings-row" style="display:flex;align-items:center;gap:8px;margin-top:10px">
-                <input type="checkbox" id="settingsIcenterEnabled" style="width:15px;height:15px;accent-color:var(--accent)">
-                <span data-i18n="settings_label_icenter">iCenter Channel</span>
-              </div>
-              <div style="font-size:11px;color:var(--muted);margin-top:4px" data-i18n="settings_desc_icenter">Enable iCenter (ZTE enterprise messaging). Auto-registers via bundled cli-uac.</div>
-              <div id="icenterStatus" style="font-size:11px;margin-top:4px;display:none"></div>
-            </div>
-            <div class="settings-field">
               <label for="settingsBotName" data-i18n="settings_label_bot_name">Assistant Name</label>
               <div style="font-size:11px;color:var(--muted);margin-bottom:6px" data-i18n="settings_desc_bot_name">Display name for the assistant throughout the UI. Defaults to Hermes.</div>
               <input type="text" id="settingsBotName" placeholder="Hermes" maxlength="64" style="width:100%;padding:8px;background:var(--code-bg);color:var(--text);border:1px solid var(--border2);border-radius:6px;font-size:13px">
@@ -707,6 +699,14 @@
                 <div class="settings-section-meta" data-i18n="settings_section_system_meta">Instance version and access controls.</div>
               </div>
               <span class="settings-version-badge">—</span>
+            </div>
+            <div class="settings-field">
+              <div class="settings-row" style="display:flex;align-items:center;gap:8px;margin-top:10px">
+                <input type="checkbox" id="settingsIcenterEnabled" style="width:15px;height:15px;accent-color:var(--accent)">
+                <span data-i18n="settings_label_icenter">iCenter Channel</span>
+              </div>
+              <div style="font-size:11px;color:var(--muted);margin-top:4px" data-i18n="settings_desc_icenter">Enable iCenter (ZTE enterprise messaging). Auto-registers via bundled cli-uac.</div>
+              <div id="icenterStatus" style="font-size:11px;margin-top:4px;display:none"></div>
             </div>
             <div class="settings-field">
               <label for="settingsPassword" data-i18n="settings_label_password">Access Password</label>
@@ -790,6 +790,18 @@
   </div>
 </div>
 <div class="toast" id="toast"></div>
+<!-- Migrate from OpenClaw dialog -->
+<div class="app-dialog-overlay" id="migrateOverlay" style="display:none" aria-hidden="true">
+  <div class="app-dialog" id="migrateDialog" role="dialog" aria-modal="true" style="width:min(520px,100%);max-height:85vh;display:flex;flex-direction:column">
+    <div class="app-dialog-header">
+      <div class="app-dialog-title" id="migrateTitle" data-i18n="migrate_openclaw_title">Migrate Skills from OpenClaw</div>
+      <button class="app-dialog-close" type="button" onclick="closeMigrateFromOpenclaw()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div id="migrateBody" style="flex:1;overflow-y:auto"></div>
+  </div>
+</div>
 <script src="static/i18n.js" defer></script>
 <script src="static/icons.js" defer></script>
 <script src="static/ui.js" defer></script>

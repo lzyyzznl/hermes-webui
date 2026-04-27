@@ -1850,6 +1850,129 @@ async function switchToWorkspace(path,name){
   }catch(e){setStatus(t('switch_failed')+e.message);}
 }
 
+// ── Migrate from OpenClaw ──
+let _migrateSelected = new Set();
+
+function closeMigrateFromOpenclaw() {
+  $('migrateOverlay').style.display = 'none';
+  $('migrateOverlay').setAttribute('aria-hidden', 'true');
+  _migrateSelected = new Set();
+}
+
+async function openMigrateFromOpenclaw() {
+  _migrateSelected = new Set();
+  $('migrateOverlay').style.display = 'flex';
+  $('migrateOverlay').setAttribute('aria-hidden', 'false');
+  $('migrateBody').innerHTML = `<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">${esc(t('loading'))}</div>`;
+  try {
+    const data = await api('/api/skills/openclaw-list');
+    if (!data.available) {
+      $('migrateBody').innerHTML = `<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">${esc(t('migrate_no_skills'))}</div>`;
+      return;
+    }
+    _renderMigrateList(data.skills);
+  } catch(e) {
+    $('migrateBody').innerHTML = `<div style="padding:20px;text-align:center;color:var(--accent);font-size:13px">${esc(e.message)}</div>`;
+  }
+}
+
+function _renderMigrateList(skills) {
+  const conflictCount = skills.filter(s => s.has_conflict).length;
+  let html = `<div style="display:flex;align-items:center;justify-content:space-between;padding:0 0 10px;border-bottom:1px solid var(--border2);margin-bottom:8px">
+    <div style="display:flex;gap:6px">
+      <button class="cron-btn" style="padding:3px 8px;font-size:10px" onclick="_migrateToggleAll()">${esc(t('migrate_select_all'))}</button>
+      <button class="cron-btn" style="padding:3px 8px;font-size:10px" onclick="_migrateInvert()">${esc(t('migrate_deselect_all'))}</button>
+    </div>
+    <span id="migrateCount" style="font-size:11px;color:var(--muted)">0/${skills.length}</span>
+  </div>`;
+  if (conflictCount) {
+    html += `<div style="font-size:11px;color:var(--accent);margin-bottom:8px">${esc(t('migrate_overwrite_note').replace('{count}', conflictCount))}</div>`;
+  }
+  html += `<div style="max-height:45vh;overflow-y:auto" id="migrateList">`;
+  for (const s of skills) {
+    html += `<label style="display:flex;align-items:flex-start;gap:8px;padding:6px 4px;cursor:pointer;border-radius:6px;transition:background .15s" onmouseover="this.style.background='rgba(255,255,255,.03)'" onmouseout="this.style.background='transparent'">
+      <input type="checkbox" data-skill="${esc(s.name)}" onchange="_migrateToggle('${esc(s.name)}')" style="margin-top:3px;accent-color:var(--accent)">
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-family:'SF Mono',ui-monospace,monospace;font-size:12px;color:var(--text)">${esc(s.name)}</span>
+          ${s.has_conflict ? `<span style="font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(255,180,0,.12);color:#e0a800;border:1px solid rgba(255,180,0,.2)">${esc(t('migrate_will_overwrite'))}</span>` : ''}
+        </div>
+        ${s.description ? `<div style="font-size:11px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.description)}</div>` : ''}
+      </div>
+    </label>`;
+  }
+  html += `</div>`;
+  html += `<div style="display:flex;justify-content:flex-end;padding-top:12px;border-top:1px solid var(--border2);margin-top:10px">
+    <button class="cron-btn run" id="migrateBtn" style="padding:6px 16px;font-size:11px" onclick="_doMigrate()" disabled>${esc(t('migrate_button').replace('{count}', '0'))}</button>
+  </div>`;
+  $('migrateBody').innerHTML = html;
+  _migrateUpdateCount();
+}
+
+function _migrateToggle(name) {
+  if (_migrateSelected.has(name)) _migrateSelected.delete(name);
+  else _migrateSelected.add(name);
+  _migrateUpdateCount();
+}
+
+function _migrateToggleAll() {
+  const boxes = document.querySelectorAll('#migrateList input[type=checkbox]');
+  const allChecked = _migrateSelected.size === boxes.length;
+  _migrateSelected.clear();
+  if (!allChecked) boxes.forEach(b => _migrateSelected.add(b.dataset.skill));
+  boxes.forEach(b => b.checked = !allChecked);
+  _migrateUpdateCount();
+}
+
+function _migrateInvert() {
+  const boxes = document.querySelectorAll('#migrateList input[type=checkbox]');
+  const next = new Set();
+  boxes.forEach(b => { if (!_migrateSelected.has(b.dataset.skill)) next.add(b.dataset.skill); });
+  _migrateSelected = next;
+  boxes.forEach(b => b.checked = _migrateSelected.has(b.dataset.skill));
+  _migrateUpdateCount();
+}
+
+function _migrateUpdateCount() {
+  const el = $('migrateCount');
+  if (el) el.textContent = `${_migrateSelected.size}/${document.querySelectorAll('#migrateList input[type=checkbox]').length}`;
+  const btn = $('migrateBtn');
+  if (btn) {
+    btn.disabled = _migrateSelected.size === 0;
+    btn.textContent = t('migrate_button').replace('{count}', _migrateSelected.size);
+  }
+}
+
+async function _doMigrate() {
+  if (!_migrateSelected.size) return;
+  $('migrateBody').innerHTML = `<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">${esc(t('migrate_migrating'))}</div>`;
+  try {
+    const result = await api('/api/skills/migrate-openclaw', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({skills: [..._migrateSelected]})
+    });
+    let html = `<div style="padding:16px">`;
+    html += `<div style="color:#4ade80;font-size:13px;margin-bottom:8px">✓ ${esc(t('migrate_success').replace('{count}', result.count))}</div>`;
+    if (result.overwritten && result.overwritten.length) {
+      html += `<div style="font-size:11px;color:var(--muted)">${esc(t('migrate_will_overwrite'))}: ${result.overwritten.map(esc).join(', ')}</div>`;
+    }
+    html += `<div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="cron-btn run" style="padding:6px 16px;font-size:11px" onclick="closeMigrateFromOpenclaw();_skillsData=null;loadSkills()">${esc(t('close'))}</button></div>`;
+    html += `</div>`;
+    $('migrateBody').innerHTML = html;
+  } catch(e) {
+    let html = `<div style="padding:16px">`;
+    html += `<div style="color:var(--accent);font-size:13px;margin-bottom:8px">${esc(t('migrate_failed'))}</div>`;
+    html += `<div style="font-size:11px;color:var(--muted);word-break:break-all">${esc(e.message)}</div>`;
+    html += `<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">
+      <button class="cron-btn" style="padding:6px 12px;font-size:11px" onclick="closeMigrateFromOpenclaw()">${esc(t('cancel'))}</button>
+      <button class="cron-btn run" style="padding:6px 12px;font-size:11px" onclick="openMigrateFromOpenclaw()">${esc(t('retry'))}</button>
+    </div>`;
+    html += `</div>`;
+    $('migrateBody').innerHTML = html;
+  }
+}
+
 // ── Profile panel + dropdown ──
 let _profilesCache = null;
 
