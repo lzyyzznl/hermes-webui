@@ -588,8 +588,13 @@ async function loadSkills() {
   if (_skillsData) { renderSkills(_skillsData); return; }
   const box = $('skillsList');
   try {
-    const data = await api('/api/skills');
-    _skillsData = data.skills || [];
+    // Load skills + market metadata in parallel so upgrade buttons appear immediately
+    const [skillsResp] = await Promise.all([
+      api('/api/skills'),
+      _loadMarketInstalled(),
+      _loadMarketUpdates(),
+    ]);
+    _skillsData = skillsResp.skills || [];
     renderSkills(_skillsData);
   } catch(e) { box.innerHTML = `<div style="padding:12px;color:var(--accent);font-size:12px">Error: ${esc(e.message)}</div>`; }
 }
@@ -611,14 +616,39 @@ function renderSkills(skills) {
   const box = $('skillsList');
   box.innerHTML = '';
   if (!filtered.length) { box.innerHTML = `<div style="padding:12px;color:var(--muted);font-size:12px">${esc(t('skills_no_match'))}</div>`; return; }
+
+  // Show "Upgrade All" banner when updates are available
+  if (_marketUpdates.length > 0) {
+    const bar = document.createElement('div');
+    bar.className = 'market-upgrade-bar';
+    bar.innerHTML = `<span>${esc(t('market_updates_available', _marketUpdates.length))}</span><button class="market-btn upgrade" onclick="marketUpgradeAll(this)">${esc(t('market_upgrade_all'))}</button>`;
+    box.appendChild(bar);
+  }
+
   for (const [cat, items] of Object.entries(cats).sort()) {
     const sec = document.createElement('div');
     sec.className = 'skills-category';
     sec.innerHTML = `<div class="skills-cat-header">${li('folder',12)} ${esc(cat)} <span style="opacity:.5">(${items.length})</span></div>`;
     for (const skill of items.sort((a,b) => a.name.localeCompare(b.name))) {
+      const isMarket = !!_marketInstalled[skill.name];
+      const updateInfo = _marketUpdates.find(u => u.name === skill.name);
+
       const el = document.createElement('div');
       el.className = 'skill-item';
-      el.innerHTML = `<span class="skill-name">${esc(skill.name)}</span><span class="skill-desc">${esc(skill.description||'')}</span>`;
+      let badge = '';
+      if (updateInfo) {
+        badge = `<span class="skill-market-badge" style="background:rgba(100,200,100,.1);color:rgba(100,200,100,.9);border-color:rgba(100,200,100,.2)">${esc(updateInfo.localVersion)}<span class="arrow">→</span>${esc(updateInfo.remoteVersion)}</span>`;
+      } else if (isMarket) {
+        badge = `<span class="skill-market-badge">${esc(t('market_installed'))}</span>`;
+      }
+
+      let actions = '';
+      if (updateInfo) {
+        actions = `<button class="market-btn upgrade" style="font-size:10px;padding:3px 8px" onclick="event.stopPropagation();marketUpgrade('${esc(skill.name)}','${esc(updateInfo.skillId || updateInfo.assetId)}',this)">${esc(t('market_upgrade'))}</button>`;
+      }
+      actions += `<button class="market-btn uninstall" onclick="event.stopPropagation();uninstallSkill('${esc(skill.name)}',this)">${esc(t('market_uninstall'))}</button>`;
+
+      el.innerHTML = `<span class="skill-name">${esc(skill.name)}${badge}</span><span class="skill-desc">${esc(skill.description||'')}</span><span class="skill-item-actions" style="display:flex;gap:4px;flex-shrink:0;align-self:center">${actions}</span>`;
       el.onclick = () => openSkill(skill.name, el);
       sec.appendChild(el);
     }
@@ -735,6 +765,7 @@ function renderMarketList() {
   }
 
   box.innerHTML = '';
+
   for (const skill of _marketData) {
     const card = document.createElement('div');
     card.className = 'market-card';
@@ -747,21 +778,15 @@ function renderMarketList() {
     const downloads = skill.subscribeTimes || 0;
 
     const isInstalled = !!_marketInstalled[dirName];
-    const updateInfo = _marketUpdates.find(u => u.assetId === assetId);
-    const hasUpdate = !!updateInfo;
 
     let actionHtml;
-    if (hasUpdate) {
-      actionHtml = `<button class="market-btn upgrade" onclick="marketUpgrade('${esc(dirName)}','${esc(updateInfo.skillId || assetId)}',this)">${esc(t('market_upgrade'))}</button>`;
-    } else if (isInstalled) {
-      actionHtml = `<span class="market-btn installed">${esc(t('market_installed'))}</span>`;
+    if (isInstalled) {
+      actionHtml = `<span class="market-btn installed">${esc(t('market_installed'))}</span><button class="market-btn uninstall" onclick="marketUninstall('${esc(dirName)}',this)">${esc(t('market_uninstall'))}</button>`;
     } else {
       actionHtml = `<button class="market-btn" onclick="marketInstall('${esc(dirName)}','${esc(assetId)}','${esc(assetId)}',this)">${esc(t('market_install'))}</button>`;
     }
 
-    const versionHtml = hasUpdate
-      ? `<span class="market-version">${esc(updateInfo.localVersion)}<span class="arrow">→</span>${esc(updateInfo.remoteVersion)}</span>`
-      : `<span class="market-version">v${esc(version)}</span>`;
+    const versionHtml = `<span class="market-version">v${esc(version)}</span>`;
 
     card.innerHTML = `
       <div class="market-card-info">
@@ -797,6 +822,7 @@ async function marketInstall(name, assetId, skillId, btn) {
     btn.textContent = t('market_installed');
     _marketInstalled[name] = { name, assetId };
     _skillsData = null;
+    renderMarketList();
     showToast(t('market_install_success', name));
   } catch (e) {
     btn.className = 'market-btn';
@@ -846,9 +872,91 @@ async function marketUninstall(name, btn) {
     _skillsData = null;
     showToast(t('market_uninstall_success', name));
     if (_currentPanel === 'skills') await loadSkills();
+    renderMarketList();
   } catch (e) {
     showToast(t('market_uninstall_failed') + e.message, 4000);
   }
+}
+
+async function uninstallSkill(name, btn) {
+  const isMarket = !!_marketInstalled[name];
+  const confirmed = await showConfirmDialog({
+    title: t('market_uninstall_confirm_title'),
+    message: t('market_uninstall_confirm_message', name),
+    confirmLabel: t('market_uninstall'),
+    danger: true,
+    focusCancel: true,
+  });
+  if (!confirmed) return;
+
+  try {
+    if (isMarket) {
+      await api('/api/market/uninstall', {
+        method: 'POST',
+        body: JSON.stringify({ name }),
+      });
+      delete _marketInstalled[name];
+    } else {
+      await api('/api/skills/delete', {
+        method: 'POST',
+        body: JSON.stringify({ name }),
+      });
+    }
+    _skillsData = null;
+    _cronSkillsCache = null;
+    if (_currentSkillDetail && _currentSkillDetail.name === name) {
+      _currentSkillDetail = null;
+      _skillMode = 'empty';
+      const body = $('skillDetailBody');
+      const empty = $('skillDetailEmpty');
+      const title = $('skillDetailTitle');
+      if (body) { body.innerHTML = ''; body.style.display = 'none'; }
+      if (empty) empty.style.display = '';
+      if (title) title.textContent = '';
+      _setSkillHeaderButtons('empty');
+    }
+    showToast(t('market_uninstall_success', name));
+    await loadSkills();
+    renderMarketList();
+  } catch (e) {
+    showToast(t('market_uninstall_failed') + e.message, 4000);
+  }
+}
+
+async function marketUpgradeAll(btn) {
+  if (!_marketUpdates.length) return;
+  const names = _marketUpdates.map(u => u.name).join(', ');
+  const confirmed = await showConfirmDialog({
+    title: t('market_upgrade_all_confirm_title'),
+    message: t('market_upgrade_all_confirm_message', names),
+    confirmLabel: t('market_upgrade_all'),
+    danger: false,
+    focusCancel: true,
+  });
+  if (!confirmed) return;
+
+  btn.className = 'market-btn installing';
+  btn.textContent = t('market_installing');
+  const upgrades = [..._marketUpdates];
+  let failed = 0;
+  for (const u of upgrades) {
+    try {
+      await api('/api/market/upgrade', {
+        method: 'POST',
+        body: JSON.stringify({ name: u.name, skillId: u.skillId || u.assetId }),
+      });
+      _marketUpdates = _marketUpdates.filter(x => x.assetId !== u.assetId);
+    } catch (e) {
+      failed++;
+      showToast(t('market_upgrade_failed') + e.message, 4000);
+    }
+  }
+  _skillsData = null;
+  if (failed === 0) {
+    showToast(t('market_upgrade_all_success', upgrades.length));
+  }
+  renderMarketList();
+  if (_currentPanel === 'skills') loadSkills();
 }
 
 // Currently selected skill detail — kept across panel switches so re-entering
@@ -1089,7 +1197,13 @@ async function deleteCurrentSkill() {
   });
   if (!ok) return;
   try {
-    await api('/api/skills/delete', { method:'POST', body: JSON.stringify({ name }) });
+    // Market-installed skills use the market uninstall API
+    if (_marketInstalled[name]) {
+      await api('/api/market/uninstall', { method:'POST', body: JSON.stringify({ name }) });
+      delete _marketInstalled[name];
+    } else {
+      await api('/api/skills/delete', { method:'POST', body: JSON.stringify({ name }) });
+    }
     _currentSkillDetail = null;
     _skillPreFormDetail = null;
     _skillsData = null;
@@ -1103,6 +1217,7 @@ async function deleteCurrentSkill() {
     if (title) title.textContent = '';
     _setSkillHeaderButtons('empty');
     await loadSkills();
+    renderMarketList();
     showToast(t('skill_deleted') || 'Skill deleted');
   } catch(e) { setStatus(t('error_prefix') + e.message); }
 }

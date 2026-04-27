@@ -332,6 +332,8 @@ const LOCALES = {
     market_uninstall_confirm_message: 'Are you sure you want to uninstall "{0}"?',
     market_uninstall_success: '{0} uninstalled',
     market_uninstall_failed: 'Uninstall failed: ',
+    market_updates_available: (n) => `${n} skill${n === 1 ? '' : 's'} can be updated`,
+    market_upgrade_all_success: (n) => `${n} skill${n === 1 ? '' : 's'} upgraded`,
     personal_memory: 'Personal memory',
     current_task_list: 'Current task list',
     workspace_desc: 'Add and switch workspaces for your sessions.',
@@ -2329,6 +2331,8 @@ const LOCALES = {
     market_uninstall_confirm_message: '确定要卸载 "{0}" 吗？',
     market_uninstall_success: '{0} 已卸载',
     market_uninstall_failed: '卸载失败：',
+    market_updates_available: (n) => `${n} 个技能可更新`,
+    market_upgrade_all_success: (n) => `${n} 个技能已升级`,
     personal_memory: '个人记忆',
     current_task_list: '当前任务列表',
     workspace_desc: '为你的会话添加并切换工作区。',
@@ -3350,7 +3354,9 @@ function resolvePreferredLocale(primary, fallback) {
 function t(key, ...args) {
   const val = _locale[key] ?? LOCALES.en[key];
   if (val === undefined) return key;  // final fallback: return key itself
-  return typeof val === 'function' ? val(...args) : val;
+  const str = typeof val === 'function' ? val(...args) : val;
+  if (!args.length) return str;
+  return args.reduce((s, arg, i) => { const ph = `{${i}}`; return s.includes(ph) ? s.split(ph).join(String(arg)) : s; }, str);
 }
 
 /**

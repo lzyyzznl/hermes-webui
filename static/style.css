@@ -524,6 +524,8 @@
   .skill-item.active{background:var(--accent-bg);color:var(--accent-text);}
   .skill-name{font-weight:500;flex-shrink:0;}
   .skill-desc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;font-size:11px;opacity:.7;}
+  .skill-item-actions{opacity:0;transition:opacity .12s;}
+  .skill-item:hover .skill-item-actions{opacity:1;}
   /* Memory panel */
   .memory-panel{flex:1;overflow-y:auto;padding:12px;}
   .memory-section{margin-bottom:16px;}
@@ -1213,6 +1215,8 @@ body.resizing{user-select:none;cursor:col-resize;}
 .market-btn.upgrade{border-color:rgba(100,200,100,.3);color:rgba(100,200,100,.9);}
 .market-btn.upgrade:hover{background:rgba(100,200,100,.12);}
 .market-btn.uninstall{border-color:rgba(201,168,76,.2);color:var(--accent);font-size:10px;padding:3px 8px;}
+.market-btn.uninstall:hover{background:rgba(201,168,76,.1);}
+.market-upgrade-bar{display:flex;align-items:center;justify-content:space-between;padding:6px 10px;margin-bottom:4px;border-radius:8px;background:rgba(100,200,100,.06);border:1px solid rgba(100,200,100,.15);font-size:11px;color:var(--text);}
 .market-version{font-family:'SF Mono',ui-monospace,monospace;font-size:10px;}
 .market-version .arrow{color:var(--accent);margin:0 2px;}
 .skill-market-badge{font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(124,185,255,.1);color:var(--blue);border:1px solid rgba(124,185,255,.2);margin-left:4px;vertical-align:middle;}
