@@ -139,6 +139,40 @@ def _load_yaml_config(config_path: Path) -> dict:
         return {}
 
 
+def _get_skeleton_config_path() -> Path | None:
+    """Find skeleton config.yaml shipped with the installation."""
+    candidates = [
+        Path("/usr/share/hermes-webui/.hermes-skel/.hermes/config.yaml"),
+        Path(__file__).resolve().parent.parent.parent / "packaging" / "skel" / ".hermes" / "config.yaml",
+    ]
+    for p in candidates:
+        if p.exists():
+            return p
+    return None
+
+
+def _deep_merge(base: dict, override: dict) -> dict:
+    """Recursively merge override into base. Override values take precedence."""
+    result = dict(base)
+    for k, v in override.items():
+        if k in result and isinstance(result[k], dict) and isinstance(v, dict):
+            result[k] = _deep_merge(result[k], v)
+        else:
+            result[k] = v
+    return result
+
+
+def _load_config_with_defaults(config_path: Path) -> dict:
+    """Load user config, merging skeleton defaults for any missing keys."""
+    cfg = _load_yaml_config(config_path)
+    skel_path = _get_skeleton_config_path()
+    if skel_path:
+        skel = _load_yaml_config(skel_path)
+        if skel:
+            cfg = _deep_merge(skel, cfg)
+    return cfg
+
+
 def _save_yaml_config(config_path: Path, config: dict) -> None:
     try:
         import yaml as _yaml
@@ -630,7 +664,7 @@ def apply_onboarding_setup(body: dict) -> dict:
             "requires_confirm": True,
         }
 
-    cfg = _load_yaml_config(config_path)
+    cfg = _load_config_with_defaults(config_path)
     env_path = _get_active_hermes_home() / ".env"
     env_values = _load_env_file(env_path)
 
@@ -721,7 +755,7 @@ def sync_from_openclaw() -> dict:
     if not openclaw_cfg:
         raise RuntimeError(".openclaw not found, cannot sync")
 
-    hermes_cfg = _load_yaml_config(_get_config_path())
+    hermes_cfg = _load_config_with_defaults(_get_config_path())
     hermes_home = _get_active_hermes_home()
 
     # Sync model config from .openclaw/models to hermes config
